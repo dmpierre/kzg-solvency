@@ -52,7 +52,7 @@ mod tests {
         let p_omegas = GeneralEvaluationDomain::<F>::new(n_leaves).unwrap();
         
         // Our omegas (domain of P(X)) in a vector that we will access later on
-        let mut domain_elements = vec![];
+        let mut domain_elements: Vec<F> = vec![];
         for element in p_omegas.elements() {
             domain_elements.push(element);
         }
@@ -71,12 +71,13 @@ mod tests {
         // When evaluated at omega^2 and omega^3, it needs to be equal to P(omega^2) and P(omega^3)
         let l_omegas = p_omegas.clone();
         let mut l_evaluations = vec![];
-        for i in  0..n_leaves {
+        for (i, element) in domain_elements.iter().enumerate() {
             if i == 2 || i == 3 {
                 // at omega^2 and omega^3, we want to have P(omega^2) and P(omega^3)
-                let eval = P.evaluate(&domain_elements[i]); 
+                let eval = P.evaluate(&element); 
                 l_evaluations.push(eval);
-            } else {
+            }
+            else {
                 l_evaluations.push(F::zero());
             }
         }
