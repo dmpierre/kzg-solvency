@@ -1,13 +1,21 @@
 mod kzg;
 mod lagrange;
 mod prover;
+mod utils;
 
 #[cfg(test)]
 mod tests {
     use crate::prover::User;
+    use crate::utils::build_zero_polynomial;
+    use crate::utils::compute_evaluations_for_specific_omegas;
+    use crate::utils::generate_random_scalar_field_elements;
+    use crate::utils::get_omega_domain;
 
     use super::*;
     use ark_bn254::{Bn254, Fr as F, G1Projective as G1, G2Projective as G2};
+    use ark_ec::bn::Bn;
+    use ark_ec::pairing::Pairing;
+    use ark_ff::Field;
     use ark_poly::polynomial::univariate::DensePolynomial;
     use ark_poly::DenseUVPolynomial;
     use ark_poly::EvaluationDomain;
@@ -20,7 +28,6 @@ mod tests {
     use kzg::KZG;
     use lagrange::lagrange_interpolate;
     use prover::generate_witness;
-    use ark_ff::Field;
 
     #[test]
     fn test_kzg_bn254() {
@@ -43,6 +50,47 @@ mod tests {
     }
 
     #[test]
+    fn multi_opening() {
+        let mut rng = test_rng();
+
+        // Build our polynomial P(X). It consists of users usernames and balances
+        let n_users = 8;
+        let n_leaves = n_users * 2; // user consists of (h(username), leaf)
+
+        // p_omegas consists in the domain of P(X). we also store them in domain_elements
+        let (p_omegas, domain_elements) = get_omega_domain::<Bn254>(n_leaves);
+
+        // P(omega^i) = random * i
+        let p_evaluations = generate_random_scalar_field_elements::<Bn254>(&mut rng, n_leaves);
+        let P: DensePolynomial<F> =
+            Evaluations::<F>::from_vec_and_domain(p_evaluations.clone(), p_omegas).interpolate();
+
+        let mut kzg_bn254 = KZG::<Bn254>::new(G1::rand(&mut rng), G2::rand(&mut rng), n_leaves - 1);
+        let _ = kzg_bn254.setup(F::rand(&mut rng));
+        let commitment = kzg_bn254.commit(&P);
+
+        // Build polynomial L(X), that consists into the "opening" of (username, balance)
+        // we want the L(X) interpolated polynomial to be defined over the same domain of P
+        // When evaluated at omega^2 and omega^3, it will be equal to P(omega^2) and P(omega^3)
+        let l_omegas = p_omegas.clone();
+        let l_evaluations =
+            compute_evaluations_for_specific_omegas::<Bn254>(vec![2, 3], &domain_elements, &P);
+        let L: DensePolynomial<F> =
+            Evaluations::<F>::from_vec_and_domain(l_evaluations.clone(), l_omegas).interpolate();
+        
+        // Build denominator polynomial Z(X) in [(P(x) - Q(X)) / Z(X)]
+        let Z = build_zero_polynomial::<Bn254>(&vec![domain_elements[2], domain_elements[3]]);
+
+        // Perform multi opening, z is a vector of points at which we want to prove an opening for specific values
+        let pi = kzg_bn254.multi_open(&P, &L, vec![domain_elements[2], domain_elements[3]]);
+        let verify = kzg_bn254.verify_multi_open(commitment, pi, &Z, &L);
+        assert!(verify);
+
+        let verify_wrong = kzg_bn254.verify_multi_open(commitment, pi * F::from(2134), &Z, &L);
+        assert!(!verify_wrong);
+    }
+
+    #[test]
     fn compute_Q() {
         let mut rng = test_rng();
 
@@ -50,7 +98,7 @@ mod tests {
         let n_users = 8;
         let n_leaves = n_users * 2; // user consists of (h(username), leaf)
         let p_omegas = GeneralEvaluationDomain::<F>::new(n_leaves).unwrap();
-        
+
         // Our omegas (domain of P(X)) in a vector that we will access later on
         let mut domain_elements: Vec<F> = vec![];
         for element in p_omegas.elements() {
@@ -60,7 +108,7 @@ mod tests {
         let mut p_evaluations = vec![];
         for i in 0..n_leaves {
             // P(omega^i) = random * i
-            let eval = F::rand(&mut rng) * F::from(i as u32); 
+            let eval = F::rand(&mut rng) * F::from(i as u32);
             p_evaluations.push(eval);
         }
         let P: DensePolynomial<F> =
@@ -74,35 +122,46 @@ mod tests {
         for (i, element) in domain_elements.iter().enumerate() {
             if i == 2 || i == 3 {
                 // at omega^2 and omega^3, we want to have P(omega^2) and P(omega^3)
-                let eval = P.evaluate(&element); 
+                let eval = P.evaluate(&element);
                 l_evaluations.push(eval);
-            }
-            else {
+            } else {
                 l_evaluations.push(F::zero());
             }
         }
-        let L: DensePolynomial<F> = Evaluations::<F>::from_vec_and_domain(l_evaluations.clone(), l_omegas).interpolate();
+        let L: DensePolynomial<F> =
+            Evaluations::<F>::from_vec_and_domain(l_evaluations.clone(), l_omegas).interpolate();
 
         // Build denominator polynomial Z(X) in [(P(x) - Q(X)) / Z(X)]
         // here roots of Z(X) will be omega^{2} and omega^{3}
-        let l_root_username: DensePolynomial<F> = DenseUVPolynomial::from_coefficients_vec(vec![domain_elements[2] * F::from(-1), F::from(1)]);
-        let l_root_balance: DensePolynomial<F> = DenseUVPolynomial::from_coefficients_vec(vec![domain_elements[3]* F::from(-1), F::from(1)]);
+        let l_root_username: DensePolynomial<F> = DenseUVPolynomial::from_coefficients_vec(vec![
+            domain_elements[2] * F::from(-1),
+            F::from(1),
+        ]);
+        let l_root_balance: DensePolynomial<F> = DenseUVPolynomial::from_coefficients_vec(vec![
+            domain_elements[3] * F::from(-1),
+            F::from(1),
+        ]);
         let Z = &l_root_username * &l_root_balance;
 
-        // Build final polynomial 
+        // Build final polynomial Q(X)
         let Q = &(&P - &L) / (&Z);
 
         // L(X) and Z(X) do not have the same coeffs
         assert_ne!(L.coeffs(), Z.coeffs());
 
         // L(X) and Z(X) evaluate to the same values at at omega^2 and omega^3
-        assert_eq!(L.evaluate(&domain_elements[2]), P.evaluate(&domain_elements[2]));
-        assert_eq!(L.evaluate(&domain_elements[3]), P.evaluate(&domain_elements[3]));
+        assert_eq!(
+            L.evaluate(&domain_elements[2]),
+            P.evaluate(&domain_elements[2])
+        );
+        assert_eq!(
+            L.evaluate(&domain_elements[3]),
+            P.evaluate(&domain_elements[3])
+        );
 
         // Z(X) has roots at omega^2 and omega^3
         assert_eq!(Z.evaluate(&domain_elements[2]), F::zero());
         assert_eq!(Z.evaluate(&domain_elements[3]), F::zero());
-
     }
 
     fn test_lagrange() {
