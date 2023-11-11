@@ -14,9 +14,6 @@ mod tests {
 
     use super::*;
     use ark_bn254::{Bn254, Fr as F, G1Projective as G1, G2Projective as G2};
-    use ark_ec::bn::Bn;
-    use ark_ec::pairing::Pairing;
-    use ark_ff::Field;
     use ark_poly::polynomial::univariate::DensePolynomial;
     use ark_poly::DenseUVPolynomial;
     use ark_poly::EvaluationDomain;

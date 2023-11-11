@@ -2,6 +2,7 @@ use ark_bn254::{Bn254, Fr as F, G1Projective as G1, G2Projective as G2};
 use ark_poly::{polynomial::Polynomial, EvaluationDomain, GeneralEvaluationDomain};
 use ark_std::{rand::Rng, test_rng, UniformRand};
 use kzg_solvency::misc::{generate_random_balances, generate_users, greet};
+use kzg_solvency::utils::{get_omega_domain, compute_evaluations_for_specific_omegas};
 use kzg_solvency::{kzg::KZG, lagrange::lagrange_interpolate, prover::User};
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial,
@@ -48,24 +49,16 @@ fn main() {
     // 4. Generate opening proof for polynomial p at index 1 (user 0 balance)
     let index = 1;
 
-    let k = n * 16; // 100*16
+    let k = n * 16; // This is n*16 because we have that P(X) has the same number of evaluations as I(X) (16 coeffs per user)
+    let (omegas, omega_elements) = get_omega_domain::<Bn254>(k);
     let omegas = GeneralEvaluationDomain::<F>::new(k).unwrap();
-
-    let expected_opening_value = F::from(balances[0]); // user 0 balance
-
-    let opening_proof_p_user_0 =
-        kzg_bn254.open(&p_poly, omegas.element(index), expected_opening_value);
-
-    // TO DO: add multiopening here. User 0 should both open the index 0 and index 1 of the polynomial p.
+    let l_evaluations = compute_evaluations_for_specific_omegas::<Bn254>(vec![2, 3], &omega_elements, &p_poly);
+    let L = Evaluations::<F>::from_vec_and_domain(l_evaluations.clone(), omegas).interpolate();
+    let Z = build_zero_polynomial::<Bn254>(&vec![omega_elements[2], omega_elements[3]]);
+    let pi = kzg_bn254.multi_open(&p_poly, &L, vec![omega_elements[2], omega_elements[3]]);
 
     // 5. User 0 verifies opening proof for their balance
-    let verify = kzg_bn254.verify(
-        expected_opening_value,
-        omegas.element(index),
-        p_commitment,
-        opening_proof_p_user_0,
-    );
-
+    let verify = kzg_bn254.verify_multi_open(p_commitment, pi, &Z, &L);
     assert!(verify);
 
     // 6. Generate opening proof for constraint 1: I(ω^(16*x)) = 0. We need to enforce that I(X) vanishes for [ω^0, ω^16, ..., ω^112]
