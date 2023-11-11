@@ -10,6 +10,8 @@ mod tests {
     use ark_bn254::{Bn254, Fr as F, G1Projective as G1, G2Projective as G2};
     use ark_poly::polynomial::univariate::DensePolynomial;
     use ark_poly::DenseUVPolynomial;
+    use ark_poly::EvaluationDomain;
+    use ark_poly::GeneralEvaluationDomain;
     use ark_poly::Polynomial;
     use ark_std::rand::Rng;
     use ark_std::UniformRand;
@@ -39,8 +41,25 @@ mod tests {
     }
 
     #[test]
-    fn lagrange() {
-        lagrange_interpolate();
+    fn test_lagrange() {
+        let balances = vec![
+            F::from(20),
+            F::from(50),
+            F::from(10),
+            F::from(164),
+            F::from(870),
+            F::from(6),
+            F::from(270),
+            F::from(90),
+        ];
+
+        let poly = lagrange_interpolate(&balances);
+
+        let omegas = GeneralEvaluationDomain::<F>::new(1 << 3).unwrap();
+
+        for (i, omega) in omegas.elements().enumerate() {
+            assert_eq!(poly.evaluate(&omega), balances[i]);
+        }
     }
 
     #[test]
