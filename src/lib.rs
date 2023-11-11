@@ -20,6 +20,7 @@ mod tests {
     use kzg::KZG;
     use lagrange::lagrange_interpolate;
     use prover::generate_witness;
+    use ark_ff::Field;
 
     #[test]
     fn test_kzg_bn254() {
@@ -42,17 +43,65 @@ mod tests {
     }
 
     #[test]
-    fn multi_opening() {
+    fn compute_Q() {
         let mut rng = test_rng();
-        let degree = 10;
-        let polynomial: DensePolynomial<F> = DenseUVPolynomial::rand(degree, &mut rng);
 
-        let omegas = GeneralEvaluationDomain::<F>::new(3).unwrap();
-        let evals = vec![F::from(12), F::from(123), F::from(1234)];
-        let lagrange: DensePolynomial<F> =
-            Evaluations::<F>::from_vec_and_domain(evals, omegas).interpolate();
+        // Build our polynomial P(X). It consists of users usernames and balances
+        let n_users = 8;
+        let n_leaves = n_users * 2; // user consists of (h(username), leaf)
+        let p_omegas = GeneralEvaluationDomain::<F>::new(n_leaves).unwrap();
+        
+        // Our omegas (domain of P(X)) in a vector that we will access later on
+        let mut domain_elements = vec![];
+        for element in p_omegas.elements() {
+            domain_elements.push(element);
+        }
 
-        dbg!(lagrange.coeffs());
+        let mut p_evaluations = vec![];
+        for i in 0..n_leaves {
+            // P(omega^i) = random * i
+            let eval = F::rand(&mut rng) * F::from(i as u32); 
+            p_evaluations.push(eval);
+        }
+        let P: DensePolynomial<F> =
+            Evaluations::<F>::from_vec_and_domain(p_evaluations.clone(), p_omegas).interpolate();
+
+        // Build polynomial L(X), that consists into the "opening" of (username, balance)
+        // we want the L(X) interpolated polynomial to be defined over the same domain of P
+        // When evaluated at omega^2 and omega^3, it needs to be equal to P(omega^2) and P(omega^3)
+        let l_omegas = p_omegas.clone();
+        let mut l_evaluations = vec![];
+        for i in  0..n_leaves {
+            if i == 2 || i == 3 {
+                // at omega^2 and omega^3, we want to have P(omega^2) and P(omega^3)
+                let eval = P.evaluate(&domain_elements[i]); 
+                l_evaluations.push(eval);
+            } else {
+                l_evaluations.push(F::zero());
+            }
+        }
+        let L: DensePolynomial<F> = Evaluations::<F>::from_vec_and_domain(l_evaluations.clone(), l_omegas).interpolate();
+
+        // Build denominator polynomial Z(X) in [(P(x) - Q(X)) / Z(X)]
+        // here roots of Z(X) will be omega^{2} and omega^{3}
+        let l_root_username: DensePolynomial<F> = DenseUVPolynomial::from_coefficients_vec(vec![domain_elements[2] * F::from(-1), F::from(1)]);
+        let l_root_balance: DensePolynomial<F> = DenseUVPolynomial::from_coefficients_vec(vec![domain_elements[3]* F::from(-1), F::from(1)]);
+        let Z = &l_root_username * &l_root_balance;
+
+        // Build final polynomial 
+        let Q = &(&P - &L) / (&Z);
+
+        // L(X) and Z(X) do not have the same coeffs
+        assert_ne!(L.coeffs(), Z.coeffs());
+
+        // L(X) and Z(X) evaluate to the same values at at omega^2 and omega^3
+        assert_eq!(L.evaluate(&domain_elements[2]), P.evaluate(&domain_elements[2]));
+        assert_eq!(L.evaluate(&domain_elements[3]), P.evaluate(&domain_elements[3]));
+
+        // Z(X) has roots at omega^2 and omega^3
+        assert_eq!(Z.evaluate(&domain_elements[2]), F::zero());
+        assert_eq!(Z.evaluate(&domain_elements[3]), F::zero());
+
     }
 
     fn test_lagrange() {
