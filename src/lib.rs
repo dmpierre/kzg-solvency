@@ -1,9 +1,11 @@
 mod kzg;
-mod lagrange;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ark_poly::EvaluationDomain;
+    use ark_poly::Evaluations;
+    use ark_poly::GeneralEvaluationDomain;
     use kzg::KZG;
     use ark_bn254::{Bn254, Fr as F, G1Projective as G1, G2Projective as G2};
     use ark_poly::polynomial::univariate::DensePolynomial;
@@ -11,8 +13,7 @@ mod tests {
     use ark_poly::Polynomial;
     use ark_std::test_rng;
     use ark_std::UniformRand;
-    use lagrange::lagrange_interpolate;
-    
+
     #[test]
     fn test_kzg_bn254() {
 
@@ -36,7 +37,19 @@ mod tests {
     }
 
     #[test]
-    fn lagrange() {
-        lagrange_interpolate();
+    fn multi_opening() {
+
+        let mut rng = test_rng();
+        let degree = 10;
+        let polynomial: DensePolynomial<F> = DenseUVPolynomial::rand(degree, &mut rng);
+
+
+        let omegas = GeneralEvaluationDomain::<F>::new(3).unwrap();
+        let evals = vec![F::from(12), F::from(123), F::from(1234)];
+        let lagrange: DensePolynomial<F> = Evaluations::<F>::from_vec_and_domain(evals, omegas).interpolate();
+        
+        dbg!(lagrange.coeffs());
+
     }
+
 }
