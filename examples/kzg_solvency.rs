@@ -20,6 +20,7 @@ fn main() {
         .collect::<Vec<User>>();
 
     // 2. Generate witness tables
+    // TO DO: witness should do hashing for username and salt. Now it's just adding them together. Like a dummy hash.
     let (p_witness, i_witness) = kzg_solvency::prover::generate_witness(users).unwrap();
 
     // 3. Interpolate witness tables into polynomials
@@ -58,5 +59,7 @@ fn main() {
         opening_proof_p_user_0,
     );
 
+    // TO DO: add multiopening here. User 0 should both open the index 0 and index 1 of the polynomial p.
+    
     assert!(verify);
 }
