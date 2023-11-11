@@ -1,7 +1,12 @@
 use ark_bn254::{Bn254, Fr as F, G1Projective as G1, G2Projective as G2};
-use ark_poly::{polynomial::Polynomial, EvaluationDomain, GeneralEvaluationDomain};
-use ark_std::{rand::Rng, test_rng, UniformRand};
-use kzg_solvency::{kzg::KZG, lagrange::lagrange_interpolate, prover::User};
+use ark_poly::{
+    polynomial::Polynomial, univariate::DensePolynomial, EvaluationDomain, Evaluations,
+    GeneralEvaluationDomain,
+};
+use ark_std::{rand::Rng, test_rng, UniformRand, Zero};
+use kzg_solvency::{
+    kzg::KZG, lagrange::lagrange_interpolate, prover::User, utils::build_zero_polynomial,
+};
 
 fn main() {
     // 1. Generate input users data
@@ -63,6 +68,46 @@ fn main() {
         omegas.element(index),
         p_commitment,
         opening_proof_p_user_0,
+    );
+
+    assert!(verify);
+
+    // 6. Generate opening proof for constraint 1: I(ω^(16*x)) = 0. We need to enforce that I(X) vanishes for [ω^0, ω^16, ..., ω^112]
+    let mut vanishing_omegas: Vec<F> = vec![];
+
+    for i in 0..8 {
+        vanishing_omegas.push(omegas.element(16 * i));
+    }
+
+    let mut omega_elements: Vec<F> = vec![];
+    for element in omegas.elements() {
+        omega_elements.push(element);
+    }
+
+    // The evaluation of I(X) at the vanishing_omegas should be zero
+    let mut i_evaluations = vec![];
+    for (_, _) in omega_elements.iter().enumerate() {
+        i_evaluations.push(F::zero());
+    }
+
+    // The expected opening value for constraint 1 is the evaluation of I(X) at the vanishing_omegas, which should be zero
+    let expected_opening_value: DensePolynomial<F> =
+        Evaluations::<F>::from_vec_and_domain(i_evaluations.clone(), omegas).interpolate();
+
+    // Generate opening proof for constraint 1
+    let opening_proof_constraint_1 =
+        kzg_bn254.multi_open(&i_poly, &expected_opening_value, vanishing_omegas.clone());
+
+    // zero polynomial
+    // Build denominator polynomial Z(X) in [(P(x) - Q(X)) / Z(X)]
+    let Z = build_zero_polynomial::<Bn254>(&vanishing_omegas);
+
+    // 7. User 0 verifies opening proof for constraint 1
+    let verify = kzg_bn254.verify_multi_open(
+        i_commitment,
+        opening_proof_constraint_1,
+        &Z,
+        &expected_opening_value,
     );
 
     assert!(verify);
