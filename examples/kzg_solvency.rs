@@ -1,7 +1,7 @@
 use ark_bn254::{Bn254, Fr as F, G1Projective as G1, G2Projective as G2};
 use ark_poly::{
-    polynomial::Polynomial, univariate::DensePolynomial, EvaluationDomain, Evaluations,
-    GeneralEvaluationDomain,
+    polynomial::Polynomial, univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain,
+    Evaluations, GeneralEvaluationDomain,
 };
 use ark_std::{rand::Rng, test_rng, UniformRand, Zero};
 use kzg_solvency::{
@@ -109,6 +109,47 @@ fn main() {
         &Z,
         &expected_opening_value,
     );
+
+    assert!(verify);
+
+    // 8. Generate opening proof for constraint 2: I(ω^(16*x + 14) - P(ω^(2*x + 1) = 0.
+    // This is a copy constraint and we need to enforce for each rotation
+    // that is I(ω^14) - P(ω^1) = 0, I(ω^30) - P(ω^3) = 0, I(ω^46) - P(ω^5) = 0, ..., I(ω^126) - P(ω^15) = 0
+
+    // build polynomial I(14ω) - P(ω)
+    let i_coeffs = i_poly.coeffs();
+    let mut stretched_coeffs = vec![F::zero(); 14 * i_coeffs.len()]; // Assuming F is your field type
+
+    for (i, coeff) in i_coeffs.iter().enumerate() {
+        stretched_coeffs[14 * i] = *coeff;
+    }
+
+    let stretched_poly = DensePolynomial::from_coefficients_vec(stretched_coeffs);
+
+    let i_minus_p_poly = &stretched_poly - &p_poly;
+
+    let poly_degree = i_minus_p_poly.degree();
+
+    let mut kzg_bn254_2 = KZG::<Bn254>::new(g1, g2, poly_degree);
+    kzg_bn254_2.setup(tau); // setup modifies in place the struct crs
+
+    // Generate commitment for I(14X) - P(X)
+    let i_minus_p_commitment = kzg_bn254_2.commit(&i_minus_p_poly);
+
+    let expected_opening_value = F::zero();
+
+    let open_proof_constraint_1_0 =
+        kzg_bn254_2.open(&i_minus_p_poly, omegas.element(1), expected_opening_value);
+
+    let verify = kzg_bn254_2.verify(
+        expected_opening_value,
+        omegas.element(1),
+        i_minus_p_commitment,
+        open_proof_constraint_1_0,
+    );
+
+    // TO DO: assert that the polynomial i_minus_p_poly is built correctly
+    // TO DO: implement for each copy constraint
 
     assert!(verify);
 }
