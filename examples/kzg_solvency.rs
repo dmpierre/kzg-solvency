@@ -2,18 +2,13 @@ use std::time::Instant;
 
 use ark_bn254::{Bn254, Fr as F, G1Projective as G1, G2Projective as G2};
 use ark_poly::{polynomial::Polynomial, EvaluationDomain, GeneralEvaluationDomain};
+use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Evaluations};
+use ark_std::Zero;
 use ark_std::{rand::Rng, test_rng, UniformRand};
 use kzg_solvency::misc::{generate_random_balances, generate_users, greet};
-use kzg_solvency::utils::{get_omega_domain, compute_evaluations_for_specific_omegas};
+use kzg_solvency::utils::build_zero_polynomial;
+use kzg_solvency::utils::{compute_evaluations_for_specific_omegas, get_omega_domain};
 use kzg_solvency::{kzg::KZG, lagrange::lagrange_interpolate, prover::User};
-use ark_poly::{
-    univariate::DensePolynomial, DenseUVPolynomial,
-    Evaluations
-};
-use ark_std::{Zero};
-use kzg_solvency::{
-    utils::build_zero_polynomial,
-};
 
 fn main() {
     greet();
@@ -24,17 +19,17 @@ fn main() {
     let n = 100;
     let balances = generate_random_balances(&mut rng, n);
     let users = generate_users(&mut rng, &balances);
-    
+
     // Sampling a random tau and random generators g1 and g2
     let tau = F::rand(&mut rng);
     let g1 = G1::rand(&mut rng);
     let g2 = G2::rand(&mut rng);
-    
+
     // 2. Generate witness tables
     // Instantiating the witness tables over BN254. Should be working with other pairing groups.
     println!("2. Generating witness tables");
     let (p_witness, i_witness) = kzg_solvency::prover::generate_witness::<Bn254>(users).unwrap();
-    
+
     // 3. Interpolate witness tables into polynomials. i.e. computing P(X) and I(X)
     println!("3. Computing P(X) and I(X)...");
     let p_poly = lagrange_interpolate(&p_witness);
@@ -53,19 +48,40 @@ fn main() {
 
     // 4. Generate opening proof for polynomial p at index 1 (user 0 balance)
     let index_opened = 2;
-    println!("4. Starting example multi-opening proof generation for user at index {}", index_opened);
+    println!(
+        "4. Starting example multi-opening proof generation for user at index {}",
+        index_opened
+    );
     let start = Instant::now();
     let k = n * 16; // This is n*16 because we have that P(X) has the same number of evaluations as I(X) (16 coeffs per user)
     let (omegas, omega_elements) = get_omega_domain::<Bn254>(k);
     let omegas = GeneralEvaluationDomain::<F>::new(k).unwrap();
-    let l_evaluations = compute_evaluations_for_specific_omegas::<Bn254>(vec![index_opened, index_opened + 1], &omega_elements, &p_poly);
+    let l_evaluations = compute_evaluations_for_specific_omegas::<Bn254>(
+        vec![index_opened, index_opened + 1],
+        &omega_elements,
+        &p_poly,
+    );
     let L = Evaluations::<F>::from_vec_and_domain(l_evaluations.clone(), omegas).interpolate();
-    let Z = build_zero_polynomial::<Bn254>(&vec![omega_elements[index_opened], omega_elements[index_opened + 1]]);
-    let pi = kzg_bn254.multi_open(&p_poly, &L, vec![omega_elements[index_opened], omega_elements[index_opened + 1]]);
+    let Z = build_zero_polynomial::<Bn254>(&vec![
+        omega_elements[index_opened],
+        omega_elements[index_opened + 1],
+    ]);
+    let pi = kzg_bn254.multi_open(
+        &p_poly,
+        &L,
+        vec![
+            omega_elements[index_opened],
+            omega_elements[index_opened + 1],
+        ],
+    );
     let duration = start.elapsed();
-    println!("  (Proved inclusion of (username, balance) at indexes ({}, {}) in {:.2}s))", index_opened, index_opened + 1, duration.as_secs_f64());
-    
-    
+    println!(
+        "  (Proved inclusion of (username, balance) at indexes ({}, {}) in {:.2}s))",
+        index_opened,
+        index_opened + 1,
+        duration.as_secs_f64()
+    );
+
     // 5. User 0 verifies opening proof for their balance
     let verify = kzg_bn254.verify_multi_open(p_commitment, pi, &Z, &L);
     assert!(verify);
@@ -73,6 +89,7 @@ fn main() {
 
     // 6. Generate opening proof for constraint 1: I(ω^(16*x)) = 0. We need to enforce that I(X) vanishes for [ω^0, ω^16, ..., ω^112]
     println!("6. Starting opening proof for I(ω^(16*x)) = 0");
+    let start = Instant::now();
     let mut vanishing_omegas: Vec<F> = vec![];
 
     for i in 0..8 {
@@ -97,7 +114,11 @@ fn main() {
     // Generate opening proof for constraint 1
     let opening_proof_constraint_1 =
         kzg_bn254.multi_open(&i_poly, &expected_opening_value, vanishing_omegas.clone());
-
+    let duration = start.elapsed();
+    println!(
+        "  (Proved I(ω^(16*x)) = 0 constraint in {:.2}s))",
+        duration.as_secs_f64()
+    );
     // zero polynomial
     // Build denominator polynomial Z(X) in [(P(x) - Q(X)) / Z(X)]
     let Z = build_zero_polynomial::<Bn254>(&vanishing_omegas);
@@ -109,12 +130,14 @@ fn main() {
         &Z,
         &expected_opening_value,
     );
+    println!("7. Multi opening proof for verified to {}", verify);
 
     assert!(verify);
 
     // 8. Generate opening proof for constraint 2: I(ω^(16*x + 14) - P(ω^(2*x + 1) = 0.
     // This is a copy constraint and we need to enforce for each rotation
     // that is I(ω^14) - P(ω^1) = 0, I(ω^30) - P(ω^3) = 0, I(ω^46) - P(ω^5) = 0, ..., I(ω^126) - P(ω^15) = 0
+    println!("8. Starting opening proof for I(ω^(16*x + 14) - P(ω^(2*x + 1) = 0");
 
     // build polynomial I(14ω) - P(ω)
     let i_coeffs = i_poly.coeffs();

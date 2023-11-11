@@ -4,6 +4,14 @@ An [arkworks](https://github.com/arkworks-rs/) implementation of the protocol de
 
 ### Usage
 
+Run the example with:
+
 ```bash
 cargo run --release --example kzg_solvency
+```
+
+Run tests:
+
+```bash
+cargo test --release
 ```
