@@ -27,23 +27,28 @@ fn main() {
     let p_poly = lagrange_interpolate(&p_witness);
     let i_poly = lagrange_interpolate(&i_witness);
 
-    // 4. Commit to polynomial p
+    // 4. Commit to polynomial p and i
     let tau = F::rand(&mut rng);
 
     // TO DO: Why is it random?
     let g1 = G1::rand(&mut rng);
     let g2 = G2::rand(&mut rng);
 
-    let p_degree = p_poly.degree();
-    let mut kzg_bn254 = KZG::<Bn254>::new(g1, g2, p_degree);
+    let poly_degree = p_poly.degree();
+    let i_degree = i_poly.degree();
+
+    assert_eq!(poly_degree, i_degree);
+
+    let mut kzg_bn254 = KZG::<Bn254>::new(g1, g2, poly_degree);
 
     kzg_bn254.setup(tau); // setup modifies in place the struct crs
     let p_commitment = kzg_bn254.commit(&p_poly);
+    let i_commitment = kzg_bn254.commit(&i_poly);
 
     // 5. Generate opening proof for polynomial p at index 1 (user 0 balance)
     let index = 1;
 
-    let k = 4; // 2^k = 16
+    let k = 7; // 2^7 = 128 which is the number of elements in each witness table
     let omegas = GeneralEvaluationDomain::<F>::new(1 << k).unwrap();
 
     let expected_opening_value = F::from(balances[0]); // user 0 balance
@@ -60,6 +65,6 @@ fn main() {
     );
 
     // TO DO: add multiopening here. User 0 should both open the index 0 and index 1 of the polynomial p.
-    
+
     assert!(verify);
 }

@@ -1,4 +1,5 @@
 use ark_bn254::Fr;
+use ark_std::Zero;
 use serde_json::Error;
 
 #[derive(Debug, Clone)]
@@ -53,6 +54,13 @@ pub fn generate_witness(users: Vec<User>) -> Result<(Vec<Fr>, Vec<Fr>), Error> {
             i_witness.push(Fr::from(user_array[i]));
         }
     }
+
+    // fill p_witness with zeroes to make it the same length as i_witness
+    for _ in 0..i_witness.len() - p_witness.len() {
+        p_witness.push(Fr::zero());
+    }
+
+    assert!(p_witness.len() == i_witness.len());
 
     Ok((p_witness, i_witness))
 }
