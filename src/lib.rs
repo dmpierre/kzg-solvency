@@ -78,7 +78,7 @@ mod tests {
             compute_evaluations_for_specific_omegas::<Bn254>(vec![2, 3], &domain_elements, &P);
         let L: DensePolynomial<F> =
             Evaluations::<F>::from_vec_and_domain(l_evaluations.clone(), l_omegas).interpolate();
-        
+
         // Build denominator polynomial Z(X) in [(P(x) - Q(X)) / Z(X)]
         let Z = build_zero_polynomial::<Bn254>(&vec![domain_elements[2], domain_elements[3]]);
 
