@@ -1,21 +1,25 @@
 mod kzg;
 mod lagrange;
+mod prover;
 
 #[cfg(test)]
 mod tests {
+    use crate::prover::User;
+
     use super::*;
-    use kzg::KZG;
     use ark_bn254::{Bn254, Fr as F, G1Projective as G1, G2Projective as G2};
     use ark_poly::polynomial::univariate::DensePolynomial;
     use ark_poly::DenseUVPolynomial;
     use ark_poly::Polynomial;
-    use ark_std::test_rng;
+    use ark_std::rand::Rng;
     use ark_std::UniformRand;
+    use ark_std::{test_rng, Zero};
+    use kzg::KZG;
     use lagrange::lagrange_interpolate;
-    
+    use prover::generate_witness;
+
     #[test]
     fn test_kzg_bn254() {
-
         let mut rng = test_rng();
         let degree = 10;
         let polynomial: DensePolynomial<F> = DenseUVPolynomial::rand(degree, &mut rng);
@@ -32,11 +36,42 @@ mod tests {
         let opening = kzg_bn254.open(&polynomial, random_z, y);
         let verify = kzg_bn254.verify(y, random_z, commitment, opening);
         assert!(verify);
-
     }
 
     #[test]
     fn lagrange() {
         lagrange_interpolate();
+    }
+
+    #[test]
+    fn test_witness_gen() {
+        let mut rng = test_rng();
+
+        let balances = vec![20, 50, 10, 164, 870, 6, 270, 90];
+
+        let users = balances
+            .iter()
+            .take(8)
+            .map(|&balance| User {
+                username: rng.gen_range(0..1000),
+                balance,
+                salt: rng.gen_range(0..1000),
+            })
+            .collect::<Vec<User>>();
+
+        let (p_witness, i_witness) = generate_witness(users.clone()).unwrap();
+
+        // check that p witnesss and i_witness are built correctly
+        for (i, user) in users.iter().enumerate() {
+            assert_eq!(p_witness[2 * i], F::from(user.username + user.salt));
+            assert_eq!(p_witness[2 * i + 1], F::from(user.balance));
+            assert_eq!(i_witness[14 + 16 * i], F::from(user.balance));
+            assert_eq!(i_witness[16 * i], F::zero());
+
+            // The last running total should be equal to 0
+            if i == users.len() - 1 {
+                assert_eq!(i_witness[15 + 16 * i], F::zero());
+            }
+        }
     }
 }
