@@ -27,7 +27,6 @@ fn main() {
     let p_poly = lagrange_interpolate(&p_witness);
     let i_poly = lagrange_interpolate(&i_witness);
 
-    // 4. Commit to polynomial p and i
     let tau = F::rand(&mut rng);
 
     // TO DO: Why is it random?
@@ -45,7 +44,7 @@ fn main() {
     let p_commitment = kzg_bn254.commit(&p_poly);
     let i_commitment = kzg_bn254.commit(&i_poly);
 
-    // 5. Generate opening proof for polynomial p at index 1 (user 0 balance)
+    // 4. Generate opening proof for polynomial p at index 1 (user 0 balance)
     let index = 1;
 
     let k = 7; // 2^7 = 128 which is the number of elements in each witness table
@@ -56,15 +55,15 @@ fn main() {
     let opening_proof_p_user_0 =
         kzg_bn254.open(&p_poly, omegas.element(index), expected_opening_value);
 
-    // 6. User 0 verifies opening proof for their balance
+    // TO DO: add multiopening here. User 0 should both open the index 0 and index 1 of the polynomial p.
+
+    // 5. User 0 verifies opening proof for their balance
     let verify = kzg_bn254.verify(
         expected_opening_value,
         omegas.element(index),
         p_commitment,
         opening_proof_p_user_0,
     );
-
-    // TO DO: add multiopening here. User 0 should both open the index 0 and index 1 of the polynomial p.
 
     assert!(verify);
 }
