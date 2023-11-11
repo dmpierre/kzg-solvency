@@ -53,57 +53,57 @@ mod tests {
             Evaluations::<F>::from_vec_and_domain(evals, omegas).interpolate();
 
         dbg!(lagrange.coeffs());
+    }
 
-        fn test_lagrange() {
-            let balances = vec![
-                F::from(20),
-                F::from(50),
-                F::from(10),
-                F::from(164),
-                F::from(870),
-                F::from(6),
-                F::from(270),
-                F::from(90),
-            ];
+    fn test_lagrange() {
+        let balances = vec![
+            F::from(20),
+            F::from(50),
+            F::from(10),
+            F::from(164),
+            F::from(870),
+            F::from(6),
+            F::from(270),
+            F::from(90),
+        ];
 
-            let poly = lagrange_interpolate(&balances);
+        let poly = lagrange_interpolate(&balances);
 
-            let omegas = GeneralEvaluationDomain::<F>::new(1 << 3).unwrap();
+        let omegas = GeneralEvaluationDomain::<F>::new(1 << 3).unwrap();
 
-            for (i, omega) in omegas.elements().enumerate() {
-                assert_eq!(poly.evaluate(&omega), balances[i]);
-            }
+        for (i, omega) in omegas.elements().enumerate() {
+            assert_eq!(poly.evaluate(&omega), balances[i]);
         }
+    }
 
-        #[test]
-        fn test_witness_gen() {
-            let mut rng = test_rng();
+    #[test]
+    fn test_witness_gen() {
+        let mut rng = test_rng();
 
-            let balances = vec![20, 50, 10, 164, 870, 6, 270, 90];
+        let balances = vec![20, 50, 10, 164, 870, 6, 270, 90];
 
-            let users = balances
-                .iter()
-                .take(8)
-                .map(|&balance| User {
-                    username: rng.gen_range(0..1000),
-                    balance,
-                    salt: rng.gen_range(0..1000),
-                })
-                .collect::<Vec<User>>();
+        let users = balances
+            .iter()
+            .take(8)
+            .map(|&balance| User {
+                username: rng.gen_range(0..1000),
+                balance,
+                salt: rng.gen_range(0..1000),
+            })
+            .collect::<Vec<User>>();
 
-            let (p_witness, i_witness) = generate_witness(users.clone()).unwrap();
+        let (p_witness, i_witness) = generate_witness(users.clone()).unwrap();
 
-            // check that p witnesss and i_witness are built correctly
-            for (i, user) in users.iter().enumerate() {
-                assert_eq!(p_witness[2 * i], F::from(user.username + user.salt));
-                assert_eq!(p_witness[2 * i + 1], F::from(user.balance));
-                assert_eq!(i_witness[14 + 16 * i], F::from(user.balance));
-                assert_eq!(i_witness[16 * i], F::zero());
+        // check that p witnesss and i_witness are built correctly
+        for (i, user) in users.iter().enumerate() {
+            assert_eq!(p_witness[2 * i], F::from(user.username + user.salt));
+            assert_eq!(p_witness[2 * i + 1], F::from(user.balance));
+            assert_eq!(i_witness[14 + 16 * i], F::from(user.balance));
+            assert_eq!(i_witness[16 * i], F::zero());
 
-                // The last running total should be equal to 0
-                if i == users.len() - 1 {
-                    assert_eq!(i_witness[15 + 16 * i], F::zero());
-                }
+            // The last running total should be equal to 0
+            if i == users.len() - 1 {
+                assert_eq!(i_witness[15 + 16 * i], F::zero());
             }
         }
     }
