@@ -1,6 +1,6 @@
-mod kzg;
-mod lagrange;
-mod prover;
+pub mod kzg;
+pub mod lagrange;
+pub mod prover;
 mod utils;
 
 #[cfg(test)]
