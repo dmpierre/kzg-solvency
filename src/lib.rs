@@ -1,7 +1,8 @@
 pub mod kzg;
 pub mod lagrange;
 pub mod prover;
-mod utils;
+pub mod utils;
+pub mod misc;
 
 #[cfg(test)]
 mod tests {
@@ -201,7 +202,7 @@ mod tests {
             })
             .collect::<Vec<User>>();
 
-        let (p_witness, i_witness) = generate_witness(users.clone()).unwrap();
+        let (p_witness, i_witness) = generate_witness::<Bn254>(users.clone()).unwrap();
 
         // check that p witnesss and i_witness are built correctly
         for (i, user) in users.iter().enumerate() {

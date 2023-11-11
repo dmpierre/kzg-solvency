@@ -5,5 +5,5 @@ An [arkworks](https://github.com/arkworks-rs/) implementation of the protocol de
 ### Usage
 
 ```bash
-cargo run --example kzg_solvency
+cargo run --release --example kzg_solvency
 ```
