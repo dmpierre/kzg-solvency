@@ -93,6 +93,19 @@ impl<E: Pairing> KZG<E> {
         lhs == rhs
     }
 
+    pub fn verify_from_encrypted_y(
+        &self,
+        py: E::G1,
+        z: E::ScalarField,
+        commitment: E::G1,
+        pi: E::G1,
+    ) -> bool {
+        let pz = self.g2 * z;
+        let lhs = E::pairing(pi, self.vk - pz);
+        let rhs = E::pairing(commitment - py, self.g2);
+        lhs == rhs
+    }
+
     pub fn verify_multi_open(
         &self,
         commitment: E::G1,
