@@ -31,7 +31,7 @@ fn main() {
     let (p_witness, i_witness) = kzg_solvency::prover::generate_witness::<Bn254>(users).unwrap();
 
     // 3. Interpolate witness tables into polynomials. i.e. computing P(X) and I(X)
-    println!("3. Computing P(X) and I(X)...");
+    println!("3. Computing lagrange interpolation for P(X) and I(X)");
     let p_poly = lagrange_interpolate(&p_witness);
     let i_poly = lagrange_interpolate(&i_witness);
     let poly_degree = p_poly.degree();
@@ -40,7 +40,7 @@ fn main() {
     assert_eq!(poly_degree, i_degree);
 
     // 4. Initiating KZG and committing to polynomials P(X) and I(X)
-    println!("4. KZG-committing to P(X) and I(X)...");
+    println!("4. KZG-committing to P(X) and I(X)");
     let mut kzg_bn254 = KZG::<Bn254>::new(g1, g2, poly_degree);
     kzg_bn254.setup(tau); // setup modifies in place the struct crs
     let p_commitment = kzg_bn254.commit(&p_poly);
@@ -49,7 +49,7 @@ fn main() {
     // 5. Generate opening proof for polynomial p at index 1 (user 0 balance)
     let index_opened = 2;
     println!(
-        "5. Constraint 1 $$$ Starting example multi-opening proof generation for user at index {}",
+        "5. -- Constraint 1 -- Starting example multi-opening proof generation for user at index {}",
         index_opened
     );
     let start = Instant::now();
@@ -85,12 +85,12 @@ fn main() {
     let verify = kzg_bn254.verify_multi_open(p_commitment, pi, &Z, &L);
     assert!(verify);
     println!(
-        "6. Multi opening proof for Constraint 1 verified to {}",
+        "6. Multi opening proof for Constraint 1 verified to {}!",
         verify
     );
 
     // 7. Generate opening proof for constraint 1: I(ω^(16*x)) = 0. We need to enforce that I(X) vanishes for [ω^0, ω^16, ..., ω^112]
-    println!("7. Constraint 2 $$$ Starting opening proof for I(ω^(16*x)) = 0 ");
+    println!("7. -- Constraint 2 -- Starting opening proof for I(ω^(16*x)) = 0 ");
     let start = Instant::now();
     let mut vanishing_omegas: Vec<F> = vec![];
 
@@ -127,7 +127,7 @@ fn main() {
     // 7. User 0 verifies opening proof for constraint 1
     let verify = kzg_bn254.verify_multi_open(i_commitment, opening_proof_constraint_1, &Z, &L);
     println!(
-        "7. Multi opening proof for Constraint 2 verified to {}",
+        "7. Multi opening proof for Constraint 2 verified to {}!",
         verify
     );
 
