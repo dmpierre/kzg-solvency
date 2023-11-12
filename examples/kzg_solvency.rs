@@ -1,14 +1,14 @@
 use std::time::Instant;
 
 use ark_bn254::{Bn254, Fr as F, G1Projective as G1, G2Projective as G2};
-use ark_poly::{polynomial::Polynomial, EvaluationDomain, GeneralEvaluationDomain};
-use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Evaluations};
+use ark_poly::{polynomial::Polynomial, EvaluationDomain};
+use ark_poly::{univariate::DensePolynomial, Evaluations};
 use ark_std::Zero;
-use ark_std::{rand::Rng, test_rng, UniformRand};
+use ark_std::{test_rng, UniformRand};
 use kzg_solvency::misc::{generate_random_balances, generate_users, greet};
 use kzg_solvency::utils::build_zero_polynomial;
 use kzg_solvency::utils::{compute_evaluations_for_specific_omegas, get_omega_domain};
-use kzg_solvency::{kzg::KZG, lagrange::lagrange_interpolate, prover::User};
+use kzg_solvency::{kzg::KZG, lagrange::lagrange_interpolate};
 
 fn main() {
     greet();
@@ -46,16 +46,15 @@ fn main() {
     let p_commitment = kzg_bn254.commit(&p_poly);
     let i_commitment = kzg_bn254.commit(&i_poly);
 
-    // 4. Generate opening proof for polynomial p at index 1 (user 0 balance)
+    // 5. Generate opening proof for polynomial p at index 1 (user 0 balance)
     let index_opened = 2;
     println!(
-        "4. Starting example multi-opening proof generation for user at index {}",
+        "5. Constraint 1 $$$ Starting example multi-opening proof generation for user at index {}",
         index_opened
     );
     let start = Instant::now();
     let k = n * 16; // This is n*16 because we have that P(X) has the same number of evaluations as I(X) (16 coeffs per user)
     let (omegas, omega_elements) = get_omega_domain::<Bn254>(k);
-    let omegas = GeneralEvaluationDomain::<F>::new(k).unwrap();
     let l_evaluations = compute_evaluations_for_specific_omegas::<Bn254>(
         vec![index_opened, index_opened + 1],
         &omega_elements,
@@ -82,17 +81,20 @@ fn main() {
         duration.as_secs_f64()
     );
 
-    // 5. User 0 verifies opening proof for their balance
+    // 6. User 0 verifies opening proof for their balance
     let verify = kzg_bn254.verify_multi_open(p_commitment, pi, &Z, &L);
     assert!(verify);
-    println!("5. Multi opening proof verified to {}", verify);
+    println!(
+        "6. Multi opening proof for Constraint 1 verified to {}",
+        verify
+    );
 
-    // 6. Generate opening proof for constraint 1: I(ω^(16*x)) = 0. We need to enforce that I(X) vanishes for [ω^0, ω^16, ..., ω^112]
-    println!("6. Starting opening proof for I(ω^(16*x)) = 0");
+    // 7. Generate opening proof for constraint 1: I(ω^(16*x)) = 0. We need to enforce that I(X) vanishes for [ω^0, ω^16, ..., ω^112]
+    println!("7. Constraint 2 $$$ Starting opening proof for I(ω^(16*x)) = 0 ");
     let start = Instant::now();
     let mut vanishing_omegas: Vec<F> = vec![];
 
-    for i in 0..8 {
+    for i in 0..n {
         vanishing_omegas.push(omegas.element(16 * i));
     }
 
@@ -102,18 +104,17 @@ fn main() {
     }
 
     // The evaluation of I(X) at the vanishing_omegas should be zero
-    let mut i_evaluations = vec![];
+    let mut l_evaluations = vec![];
     for (_, _) in omega_elements.iter().enumerate() {
-        i_evaluations.push(F::zero());
+        l_evaluations.push(F::zero());
     }
 
     // The expected opening value for constraint 1 is the evaluation of I(X) at the vanishing_omegas, which should be zero
-    let expected_opening_value: DensePolynomial<F> =
-        Evaluations::<F>::from_vec_and_domain(i_evaluations.clone(), omegas).interpolate();
+    let L: DensePolynomial<F> =
+        Evaluations::<F>::from_vec_and_domain(l_evaluations.clone(), omegas).interpolate();
 
     // Generate opening proof for constraint 1
-    let opening_proof_constraint_1 =
-        kzg_bn254.multi_open(&i_poly, &expected_opening_value, vanishing_omegas.clone());
+    let opening_proof_constraint_1 = kzg_bn254.multi_open(&i_poly, &L, vanishing_omegas.clone());
     let duration = start.elapsed();
     println!(
         "  (Proved I(ω^(16*x)) = 0 constraint in {:.2}s))",
@@ -124,55 +125,12 @@ fn main() {
     let Z = build_zero_polynomial::<Bn254>(&vanishing_omegas);
 
     // 7. User 0 verifies opening proof for constraint 1
-    let verify = kzg_bn254.verify_multi_open(
-        i_commitment,
-        opening_proof_constraint_1,
-        &Z,
-        &expected_opening_value,
-    );
-    println!("7. Multi opening proof for verified to {}", verify);
-
-    assert!(verify);
-
-    // 8. Generate opening proof for constraint 2: I(ω^(16*x + 14) - P(ω^(2*x + 1) = 0.
-    // This is a copy constraint and we need to enforce for each rotation
-    // that is I(ω^14) - P(ω^1) = 0, I(ω^30) - P(ω^3) = 0, I(ω^46) - P(ω^5) = 0, ..., I(ω^126) - P(ω^15) = 0
-    println!("8. Starting opening proof for I(ω^(16*x + 14) - P(ω^(2*x + 1) = 0");
-
-    // build polynomial I(14ω) - P(ω)
-    let i_coeffs = i_poly.coeffs();
-    let mut stretched_coeffs = vec![F::zero(); 14 * i_coeffs.len()]; // Assuming F is your field type
-
-    for (i, coeff) in i_coeffs.iter().enumerate() {
-        stretched_coeffs[14 * i] = *coeff;
-    }
-
-    let stretched_poly = DensePolynomial::from_coefficients_vec(stretched_coeffs);
-
-    let i_minus_p_poly = &stretched_poly - &p_poly;
-
-    let poly_degree = i_minus_p_poly.degree();
-
-    let mut kzg_bn254_2 = KZG::<Bn254>::new(g1, g2, poly_degree);
-    kzg_bn254_2.setup(tau); // setup modifies in place the struct crs
-
-    // Generate commitment for I(14X) - P(X)
-    let i_minus_p_commitment = kzg_bn254_2.commit(&i_minus_p_poly);
-
-    let expected_opening_value = F::zero();
-
-    let open_proof_constraint_1_0 =
-        kzg_bn254_2.open(&i_minus_p_poly, omegas.element(1), expected_opening_value);
-
-    let verify = kzg_bn254_2.verify(
-        expected_opening_value,
-        omegas.element(1),
-        i_minus_p_commitment,
-        open_proof_constraint_1_0,
+    let verify = kzg_bn254.verify_multi_open(i_commitment, opening_proof_constraint_1, &Z, &L);
+    println!(
+        "7. Multi opening proof for Constraint 2 verified to {}",
+        verify
     );
 
-    // TO DO: assert that the polynomial i_minus_p_poly is built correctly
-    // TO DO: implement for each copy constraint
     assert!(verify);
 
     // TO KEEP: Used for terminal pretty printing
