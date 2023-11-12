@@ -14,9 +14,9 @@ fn main() {
     greet();
 
     // 1. Setup
-    println!("1. Starting setup with random balances and users");
     let mut rng = test_rng();
     let n = 100;
+    println!("1. Starting setup with {} random balances and users", n);
     let balances = generate_random_balances(&mut rng, n);
     let users = generate_users(&mut rng, &balances);
 
@@ -26,12 +26,13 @@ fn main() {
     let g2 = G2::rand(&mut rng);
 
     // 2. Generate witness tables
+    // The logic of the witness table is based on section "Improving privacy and robustness with ZK-SNARKs" of https://vitalik.ca/general/2022/11/19/proof_of_solvency.html
     // Instantiating the witness tables over BN254. Should be working with other pairing groups.
     println!("2. Generating witness tables");
     let (p_witness, i_witness) = kzg_solvency::prover::generate_witness::<Bn254>(users).unwrap();
 
     // 3. Interpolate witness tables into polynomials. i.e. computing P(X) and I(X)
-    println!("3. Computing lagrange interpolation for P(X) and I(X)");
+    println!("3. Computing lagrange interpolation for P(X) and I(X) from witness tables");
     let p_poly = lagrange_interpolate(&p_witness);
     let i_poly = lagrange_interpolate(&i_witness);
     let poly_degree = p_poly.degree();
@@ -46,7 +47,7 @@ fn main() {
     let p_commitment = kzg_bn254.commit(&p_poly);
     let i_commitment = kzg_bn254.commit(&i_poly);
 
-    // 5. Generate opening proof for polynomial p at index 1 (user 0 balance)
+    // 5. Generate opening proof for polynomial p at index `index_opened` - Constraint 1
     let index_opened = 2;
     println!(
         "5. -- Constraint 1 -- Starting example multi-opening proof generation for user at index {}",
@@ -81,7 +82,7 @@ fn main() {
         duration.as_secs_f64()
     );
 
-    // 6. User 0 verifies opening proof for their balance
+    // 6. User verifies that the opening proof includes their username and balance
     let verify = kzg_bn254.verify_multi_open(p_commitment, pi, &Z, &L);
     assert!(verify);
     println!(
@@ -89,7 +90,7 @@ fn main() {
         verify
     );
 
-    // 7. Generate opening proof for constraint 1: I(ω^(16*x)) = 0. We need to enforce that I(X) vanishes for [ω^0, ω^16, ..., ω^112]
+    // 7. Generate opening proof for constraint 2: I(ω^(16*x)) = 0. We need to enforce that I(X) vanishes for [ω^0, ω^16, ..., ω^112]
     println!("7. -- Constraint 2 -- Starting opening proof for I(ω^(16*x)) = 0 ");
     let start = Instant::now();
     let mut vanishing_omegas: Vec<F> = vec![];
@@ -120,18 +121,61 @@ fn main() {
         "  (Proved I(ω^(16*x)) = 0 constraint in {:.2}s))",
         duration.as_secs_f64()
     );
-    // zero polynomial
-    // Build denominator polynomial Z(X) in [(P(x) - Q(X)) / Z(X)]
+
+    // Build vanishing polynomial Z(X) in [(P(x) - Q(X)) / Z(X)]
     let Z = build_zero_polynomial::<Bn254>(&vanishing_omegas);
 
-    // 7. User 0 verifies opening proof for constraint 1
+    // 8. User verifies opening proof for constraint 1 - expect evaluation L(X) = 0
     let verify = kzg_bn254.verify_multi_open(i_commitment, opening_proof_constraint_1, &Z, &L);
     println!(
-        "7. Multi opening proof for Constraint 2 verified to {}!",
+        "8. Multi opening proof for Constraint 2 verified to {}!",
         verify
     );
 
     assert!(verify);
+
+    // 9. Generate opening proof for constraint 3: I(ω^(16*x + 14) - P(ω^(2*x + 1) = 0.
+    // The strategy is to open I(X) at ω^14 and P(X) at ω^1 and match the evaluations. Then, do the same for ω^30 and ω^3, etc.
+    println!(
+        "9. -- Constraint 3 -- Starting opening proof for I(ω^(16*x + 14) - P(ω^(2*x + 1) = 0 "
+    );
+    let start = Instant::now();
+    // iterate over each user
+    for i in 0..n {
+        // Let's start by I(X)
+        let opening = kzg_bn254.open(&i_poly, omega_elements[16 * i + 14], F::from(balances[i]));
+
+        let encrypted_evaluation = kzg_bn254.g1 * F::from(balances[i]);
+
+        let verify = kzg_bn254.verify_from_encrypted_y(
+            encrypted_evaluation,
+            omega_elements[16 * i + 14],
+            i_commitment,
+            opening,
+        );
+
+        assert!(verify);
+
+        // Now let's do the same for P(X)
+        let opening = kzg_bn254.open(&p_poly, omega_elements[2 * i + 1], F::from(balances[i]));
+        let verify = kzg_bn254.verify_from_encrypted_y(
+            encrypted_evaluation,
+            omega_elements[2 * i + 1],
+            p_commitment,
+            opening,
+        );
+
+        assert!(verify);
+    }
+
+    let duration = start.elapsed();
+    println!(
+        "  (Proved I(ω^(16*x + 14) - P(ω^(2*x + 1) = 0 constraint in {:.2}s))",
+        duration.as_secs_f64()
+    );
+
+    // 10. User should verify that the two opening proofs are true for all users and that the encrypted evaluation is the same for both proofs, 
+    println!("10. Multi opening proof for Constraint 3 verified to true");
 
     // TO KEEP: Used for terminal pretty printing
     println!("");
